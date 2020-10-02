@@ -1,6 +1,6 @@
 ---
 title: "Untitled"
-output: html_document
+output: word_document
 ---
 
 
@@ -8,11 +8,12 @@ output: html_document
 library(tidyverse)
 library(lubridate)
 library(covid19ita)
+library(scales)
 ```
 
 ```{r}
-load(here::here("data", "db_mortality.rda"))
-load(here::here("data", "veneto_res.rda"))
+load(here::here("data", "db_mortality_rev.rda"))
+load(here::here("data", "veneto_res_rev.rda"))
 data("dpc_covid19_ita_regioni")
 ```
 
@@ -29,24 +30,24 @@ create_date_utili <- function(data1, data2){
 
 date_utili <- map2_df(.x = c("2015-01-01", "2016-01-01", "2017-01-01",
                           "2018-01-01", "2019-01-01", "2020-01-01"),
-                   .y = c("2015-03-28", "2016-03-28", "2017-03-28",
-                          "2018-03-28", "2019-03-28", "2020-03-28"),
+                   .y = c("2015-06-30", "2016-06-30", "2017-06-30",
+                          "2018-06-30", "2019-06-30", "2020-06-30"),
                    ~create_date_utili(.x, .y))
 
     
     
     
-db_veneto_wide <- db_mortality %>% 
+db_veneto_wide <- db_mortality_rev %>% 
     filter(nome_regione == "Veneto") %>% 
     mutate(comune = as.character(nome_comune)) %>% 
     dplyr::select(-reg, -prov, -nome_regione, -cod_provcom,
                   -nome_comune) %>% 
     unite(ggmm, gg, mm, sep = "-") %>% 
-    filter(is.finite(totale_20)) 
+    filter(is.finite(t_20)) 
     
     
 db_veneto_long <- db_veneto_wide %>% 
-    pivot_longer(cols = maschi_15:totale_20, 
+    pivot_longer(cols = m_15:t_20, 
                  names_to = "annosesso",
                  values_to = "morti") %>% 
     separate(annosesso, into = c("sesso", "anno"), sep = "_") %>% 
@@ -63,12 +64,13 @@ db_veneto_long <- db_veneto_wide %>%
 
 ```{r include = FALSE}
 
-seq_gg <- data.frame(seq_gg = rep(1:87, 6))
+seq_gg <- data.frame(seq_gg = rep(1:181, 6))
 
 db_plot1 <- db_veneto_long %>% 
-    filter(sesso == "totale") %>% 
+    filter(sesso == "t") %>% 
     group_by(date) %>% 
     mutate(morti_tot = sum(morti)) %>% 
+    ungroup() %>% 
     distinct(date, .keep_all = TRUE) %>% 
     filter(date != "2020-02-29" & date != "2016-02-29") %>% 
     separate(date, into = c("aa", "mm", "gg"), sep = "-", 
@@ -81,18 +83,31 @@ db_plot1 <- db_veneto_long %>%
 
 ```{r include = FALSE}
 
-res_db <- left_join(db_veneto_wide, veneto_res)
+res_db <- left_join(db_veneto_wide, veneto_res_rev)
 
 
 res_long <- res_db %>% 
-    dplyr::select(-(maschi_15:totale_20), -x2) %>% 
+    dplyr::select(-(m_15:t_20), -x2) %>% 
     distinct(comune, .keep_all = TRUE) %>% 
-    pivot_longer(cols = c(maschi15:totale19),
+    pivot_longer(cols = c(maschi15:totale20),
                  names_to = "annosesso",
                  values_to = "residenti") 
 
 
 res_long$as <- as.character(strsplit(res_long$annosesso, "1"))
+res_long$as <- NA
+
+for(i in 1:nrow(res_long)) {
+    
+    if(str_detect(res_long$annosesso[i], pattern = "1")) {
+        
+        res_long$as[i] <- as.character(strsplit(res_long$annosesso[i], "1"))
+    } else {
+        
+        res_long$as[i] <- as.character(strsplit(res_long$annosesso[i], "2"))
+    }
+}
+
 
 res_long1 <- res_long %>%
     separate(as, into = c("sesso", "anno"), sep = ",",
@@ -106,11 +121,12 @@ res_long1 <- res_long %>%
                              ifelse(anno == ' "7")', 2017,
                                     ifelse(anno == ' "8")', 2018,
                                         ifelse(anno == ' "9")', 2019,
-                                                     NA)))))) %>% 
-    group_by(annosesso, provincia) %>% 
-    mutate(res_tot = sum(residenti, na.rm = TRUE)) %>% 
-    ungroup() %>% 
-    distinct(annosesso, provincia, .keep_all = TRUE) %>% 
+                                               ifelse(anno == ' "0")', 2020,
+                                                      NA))))))) %>% 
+    group_by(annosesso, provincia) %>%
+    mutate(res_tot = sum(residenti, na.rm = TRUE)) %>%
+    ungroup() %>%
+    distinct(annosesso, provincia, .keep_all = TRUE) %>%
     dplyr::select(-as, -annosesso, -ggmm, -cl_eta)
 
 
@@ -131,8 +147,6 @@ tasso_mort1 <- res_long1 %>%
     ungroup() %>% 
     distinct(aa, .keep_all = TRUE) %>% 
     right_join(db_plot1, by = "aa") %>% 
-    mutate(res_veneto = ifelse(aa == "2020", res_veneto[aa == "2019"],
-                            res_veneto)) %>% 
     right_join(date_utili) %>% 
     group_by(aa) %>% 
     mutate(tasso = (morti_tot/res_veneto)*100000) %>% 
@@ -147,7 +161,9 @@ tasso_mort1 <- res_long1 %>%
     unite(data_falsissima, year, mese, giorno, remove = FALSE) %>% 
     group_by(data_falsissima) %>% 
     mutate(average_rate = mean(tasso),
-           year = as.factor(year))
+           year = as.factor(year)) %>% 
+    ungroup() %>% 
+    distinct(data_falsissima, .keep_all = TRUE)
 
 
 
@@ -155,29 +171,37 @@ tasso_mort1 <- res_long1 %>%
 ```
 
 ```{r echo = FALSE}
-ggplot(tasso_mort1) +
+plot1 <- ggplot(tasso_mort1) +
     geom_smooth(aes(date_false, average_rate, colour = year), 
-                span = 0.5, se = F)+
+                span = 0.5, se = T)+
     xlab("Date") +
-    ylab("Daily mortality rate x 100000 inhabitants")+
-    ylim(1.5, 3.2)
+    ylab("Daily mortality rate x 100000 inhabitants")  +
+  theme_bw() +
+  theme_minimal() +
+  geom_vline(aes(xintercept = as.numeric(date_false)[67])) +
+  scale_x_date(breaks = "month", labels = label_date_short())
+  
+
+# ggsave("plot1.tiff", units="in",  dpi=500, compression = 'lzw',
+#        path = here::here("img"), width = 9, height = 5)
 ```
 
 
 
-Mortality rate in March in  males, females and overall in 2019 and 2020 stratified by province resulting from the aggregation of selected municipalities. Mortality change rate in march from 2019 to 2020 in males, females and overall.
+Mortality rate in males, females and overall in march and april 2019 
+and 2020 stratified by province resulting from the aggregation of selected municipalities. Mortality change rate in march and april from 2019 to 2020 in males, females and overall.
 ```{r include = FALSE}
 
 db_var_sex_tax <- res_db %>% 
     separate(ggmm, into = c("gg", "mm"), sep = "-", remove = FALSE) %>% 
-    filter(mm == "3") %>% 
+    filter(mm == "3" | mm == "4") %>% 
     group_by(comune) %>% 
-    mutate(m19 = sum(maschi_19),
-           m20 = sum(maschi_20),
-           f19 = sum(femmine_19),
-           f20 = sum(femmine_20),
-           t19 = sum(totale_19),
-           t20 = sum(totale_20)) %>% 
+    mutate(m19 = sum(m_19),
+           m20 = sum(m_20),
+           f19 = sum(f_19),
+           f20 = sum(f_20),
+           t19 = sum(t_19),
+           t20 = sum(t_20)) %>% 
     ungroup() %>% 
     distinct(comune, .keep_all = TRUE) %>% 
     group_by(provincia) %>% 
@@ -188,22 +212,25 @@ db_var_sex_tax <- res_db %>%
            tot_sum19 = sum(t19),
            tot_sum20 = sum(t20),
            res_m19 = sum(maschi19, na.rm = TRUE),
+           res_m20 = sum(maschi20, na.rm = TRUE),
            res_f19 = sum(femmine19, na.rm = TRUE),
-           res_tot19 = sum(totale19, na.rm = TRUE)) %>% 
+           res_f20 = sum(femmine20, na.rm = TRUE),
+           res_tot19 = sum(totale19, na.rm = TRUE),
+           res_tot20 = sum(totale20, na.rm = TRUE)) %>% 
     distinct(provincia, .keep_all = TRUE) %>% 
     mutate(
-      var_m = (((m_sum20/res_m19) - (m_sum19/res_m19))/
+      var_m = (((m_sum20/res_m20) - (m_sum19/res_m19))/
                    (m_sum19/res_m19))*100,
-      var_f = (((f_sum20/res_f19) - (f_sum19/res_f19))/
+      var_f = (((f_sum20/res_f20) - (f_sum19/res_f19))/
                    (f_sum19/res_f19))*100,
-      var_tot = (((tot_sum20/res_tot19) - (tot_sum19/res_tot19))/
+      var_tot = (((tot_sum20/res_tot20) - (tot_sum19/res_tot19))/
                    (tot_sum19/res_tot19))*100,
-      tasso_m20 = (m_sum20/res_m19)*1000,
+      tasso_m20 = (m_sum20/res_m20)*1000,
       tasso_m19 = (m_sum19/res_m19)*1000,
       tasso_f19 = (f_sum19/res_f19)*1000,
-      tasso_f20 = (f_sum20/res_f19)*1000,
+      tasso_f20 = (f_sum20/res_f20)*1000,
       tasso_t19 = (tot_sum19/res_tot19)*1000,
-      tasso_t20 = (tot_sum20/res_tot19)*1000)
+      tasso_t20 = (tot_sum20/res_tot20)*1000)
     
 
 ```
@@ -225,14 +252,14 @@ data.frame(provincia = db_var_sex_tax$provincia,
 
 
 
-number of deaths in the Veneto Region resulting from the aggregation of selected municipalities from January 1st 2020 to March 28th 2020 stratified by classes of age
+number of deaths in the Veneto Region resulting from the aggregation of selected municipalities from January 1st 2020 to July 30th 2020 stratified by classes of age
 
 
 ```{r include = FALSE}
 
 
 db_andamento_priv <- db_veneto_long %>% 
-    filter(sesso == "totale" & date >= "2020-01-01") %>% 
+    filter(sesso == "t" & date >= "2020-01-01") %>% 
     mutate(cl_eta = ifelse(cl_eta %in% c(0:13), "0-65",
                ifelse(cl_eta %in% c(14, 15), "66-75",
                 ifelse(cl_eta %in% c( 16:21), "76 +", cl_eta)))) %>% 
@@ -249,48 +276,67 @@ db_andamento_priv <- db_veneto_long %>%
 ```
 
 ```{r fig.height=4, fig.width=8, echo = FALSE}
-db_andamento_priv %>% 
+plot2 <- db_andamento_priv %>% 
     group_by(date, cl_eta) %>% 
     mutate(m_veneto = sum(mort_cl_eta)) %>% 
     distinct(date, cl_eta, .keep_all = TRUE) %>% 
 ggplot() +
     geom_line(aes(date, m_veneto, colour = `Age class`), size = 1) +
     ylab("Number of deaths") +
-    xlab("Date")
+    xlab("Date") +
+     theme_bw() +
+    theme_minimal() +
+  scale_x_date(breaks = "month", labels = label_date_short())
+
+
+# ggsave("plot2.tiff", units="in",  dpi=500, compression = 'lzw',
+#        path = here::here("img"), width = 9, height = 5)
 ```
 
-
-```{r }
-covid_veneto <- dpc_covid19_ita_regioni %>% 
-    filter(denominazione_regione == "Veneto") %>% 
-    separate(data, into = c("day", "time"), remove = FALSE, sep = " ") %>% 
-    filter(day == "2020-03-28") 
-#total covid deaths till 2020-03-28
-#on Feb. 29 there are 2 deaths, I skip this date so total deaths
-#in Veneto from the beginning of the epidemic to 28 Mar are 362-2=360
-
-```
 
 
 ```{r}
-(360/4905854)*100000 #covid mortality rate x 100 000
-
-(1833/2314165)*100000 #all-causes mortality rate istat 2020 x 100 000
-
-res <- veneto_res %>% 
-    filter(comune %in% db_veneto_wide$comune) %>% 
-    mutate(t15 = sum(totale15, na.rm = TRUE),
-           t16 = sum(totale16, na.rm = TRUE),
-           t18 = sum(totale18),
-           t17 = sum(totale17),
-           t19 = sum(totale19))
-    
-    
-
-(1237/((2571735+2566444+2566077+2565929+2572158)/5))*100000 #average all-causes mortality rate in the 5 previous years 
 
 
-79.2 - 48.2  # increase in all-causes mortality
+#focus on march-april, months of lockdown
+covid_veneto3_4 <- dpc_covid19_ita_regioni %>% 
+    filter(denominazione_regione == "Veneto") %>% 
+    separate(data, into = c("day", "time"), remove = FALSE, sep = " ") %>% 
+    filter(day > "2020-02-28" & day < "2020-05-01") #deaths 1459(tot deceduti 
+#2020-04-30) - 2 (deceduti before 2020-03-01) = 1457
+
+(1457/4907704)*100000 #covid mortality in march and april
+#29.7
+
+a3_4 <- db_veneto_long %>% 
+    filter(sesso == "t") %>% 
+    filter(date > "2020-02-29" & date < "2020-05-01") %>% 
+    separate(date, into = c("year", "month", "day"), remove = FALSE) %>% 
+    group_by(year) %>% 
+    mutate(deaths = sum(morti)) %>% 
+    ungroup() %>% 
+    distinct(year, .keep_all = TRUE)
+
+
+(9993/4560246)*100000 #all-causes mortality in march and april
+#219.1
+
+
+b3_4 <- db_veneto_long %>% 
+    filter(sesso == "t") %>% 
+    separate(date, into = c("year", "month", "day"), remove = FALSE) %>% 
+    filter(month == "03" | month == "04") %>% 
+    group_by(year) %>% 
+    mutate(deaths = sum(morti)) %>% 
+    ungroup() %>% 
+    distinct(year, .keep_all = TRUE)
+
+((8031+7663+7820+7990+7637) / (4528822+4516950+4519599+4520610+4522371))*100000
+
+#173.1
+
+
+219.1-173.1 # = 46
 ```
 
 
