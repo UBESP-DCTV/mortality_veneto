@@ -2,9 +2,9 @@ library(tidyverse)
 library(janitor)
 library(readr)
 
-comune_giorno <- read.csv(file = here::here("raw_data",
-                                            "comune_giorno.csv"),
-                          encoding = "latin1") %>%
+comune_giorno <- read_rds(
+    path = here::here("raw-data", "comune_giorno.rds")
+    ) %>%
     clean_names()
 
 db_gg <- comune_giorno %>%
