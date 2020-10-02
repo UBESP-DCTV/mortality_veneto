@@ -11,7 +11,7 @@ In all the folders it is possible to find the old datasets and script
 and the new ones (the new files are saved as "oldname_rev").
 
 Both old and new raw data have been uploaded as *.rds instead of 
-*.xlsx
+*.csv
 
 
 Authors: Elisa Gallo, Ilaria Prosepe, Giulia Lorenzoni, Aslihan Şentürk Acar, Corrado Lanera, Paola Berchialla, Danila Azzolina and Dario Gregori
